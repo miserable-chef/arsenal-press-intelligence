@@ -54,25 +54,37 @@ def compute_press_map(press_df: pd.DataFrame, team: str) -> pd.DataFrame:
     if team_press.empty:
         return pd.DataFrame()
 
-    team_press["zone"] = team_press.apply(
-        lambda r: classify_pitch_zone(
-            r.get("location_x", r.get("location", [0, 0])[0] if isinstance(r.get("location"), list) else 0),
-            r.get("location_y", r.get("location", [0, 0])[1] if isinstance(r.get("location"), list) else 0),
-        ),
-        axis=1,
-    )
+    def _get_zone(row):
+        loc = row.get("location")
+        try:
+            if loc is not None and hasattr(loc, '__len__') and len(loc) >= 2:
+                return classify_pitch_zone(float(loc[0]), float(loc[1]))
+        except Exception:
+            pass
+        return classify_pitch_zone(
+            float(row.get("location_x", 60)),
+            float(row.get("location_y", 40)),
+        )
 
-    # extract x, y safely
+    team_press["zone"] = team_press.apply(_get_zone, axis=1)
+
+    # extract x, y safely — location may be a list, numpy array, or separate columns
     def safe_x(row):
         loc = row.get("location")
-        if isinstance(loc, list) and len(loc) >= 1:
-            return float(loc[0])
+        try:
+            if loc is not None and hasattr(loc, '__len__') and len(loc) >= 1:
+                return float(loc[0])
+        except Exception:
+            pass
         return float(row.get("location_x", 60))
 
     def safe_y(row):
         loc = row.get("location")
-        if isinstance(loc, list) and len(loc) >= 2:
-            return float(loc[1])
+        try:
+            if loc is not None and hasattr(loc, '__len__') and len(loc) >= 2:
+                return float(loc[1])
+        except Exception:
+            pass
         return float(row.get("location_y", 40))
 
     team_press["x"] = team_press.apply(safe_x, axis=1)
@@ -92,8 +104,11 @@ def compute_ppda(events_df: pd.DataFrame, team: str) -> float:
 
     def get_x(row):
         loc = row.get("location")
-        if isinstance(loc, list) and len(loc) >= 1:
-            return float(loc[0])
+        try:
+            if loc is not None and hasattr(loc, '__len__') and len(loc) >= 1:
+                return float(loc[0])
+        except Exception:
+            pass
         return float(row.get("location_x", 60))
 
     events_df = events_df.copy()
@@ -142,11 +157,14 @@ def compute_turnover_to_shot(events_df: pd.DataFrame, team: str, max_seconds: in
     for i, row in events_sorted.iterrows():
         if row.get("team") == team and row.get("type") in win_possession_types:
             t0 = row["time_seconds"]
-            win_x = row.get("location", [60, 40])
-            if isinstance(win_x, list):
-                win_x, win_y = win_x[0], win_x[1]
-            else:
-                win_x, win_y = 60, 40
+            loc = row.get("location")
+            try:
+                if loc is not None and hasattr(loc, '__len__') and len(loc) >= 2:
+                    win_x, win_y = float(loc[0]), float(loc[1])
+                else:
+                    win_x, win_y = 60.0, 40.0
+            except Exception:
+                win_x, win_y = 60.0, 40.0
 
             # look ahead for a shot by same team within max_seconds
             window = events_sorted[
